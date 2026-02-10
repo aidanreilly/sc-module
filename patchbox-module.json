@@ -1,8 +1,8 @@
 {
     "name": "sc-module",
-    "version": "0.0.4",
-    "description": "supercollider module test version",
-    "author": "dormir",
+    "version": "0.0.5",
+    "description": "supercollider midi dispatcher module",
+    "author": "aireilly",
     "launch_mode": "auto",
     "depends_on": [
         {

@@ -5,7 +5,7 @@ s.waitForBoot({
     AppClock.sched(3, {
         ~pisoundSrc = MIDIClient.sources.detect { |ep| ep.device == "pisound" };
         if(~pisoundSrc.notNil, {
-            MIDIIn.connect(0, ~pisoundSrc.uid);
+            try { MIDIIn.connect(0, ~pisoundSrc.uid) };
             ("MIDI input: " ++ ~pisoundSrc.device ++ " [" ++ ~pisoundSrc.name ++ "]").postln;
         }, {
             "ERROR: pisound not found in MIDI sources".postln;

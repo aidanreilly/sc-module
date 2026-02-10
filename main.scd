@@ -3,7 +3,9 @@ s.waitForBoot({
     MIDIClient.init;
 
     AppClock.sched(3, {
-        MIDIIn.connectAll;
+        try { MIDIIn.connectAll } { |err|
+            ("MIDI connectAll: " ++ err.errorString ++ " (continuing)").postln;
+        };
 
         ~pisound = MIDIClient.destinations.detect { |ep| ep.device == "pisound" };
         if(~pisound.notNil, {
@@ -20,14 +22,37 @@ s.waitForBoot({
         // MIDI channels are 0-indexed: ch9 = 8, ch10 = 9
         ~chans = [8, 9];
 
+        // Preset pairs: [ch9_transposition, ch10_transposition] in semitones
+        ~presets = [
+            [0, 0],      // Unison
+            [7, 12],     // Fifth + Octave
+            [12, 19],    // Octave + Octave+Fifth
+            [4, 7],      // Third + Fifth
+            [-12, 12],   // Down Octave + Up Octave
+            [3, 4],      // Minor Third + Major Third
+        ];
+        ~presetIndex = 0;
+        ~transpose = ~presets[0];
+
+        OSCdef(\nextPreset, { |msg|
+            ~presetIndex = (~presetIndex + 1) % ~presets.size;
+            ~transpose = ~presets[~presetIndex];
+            ("Preset " ++ ~presetIndex ++ ": ch9=" ++ ~transpose[0] ++ " ch10=" ++ ~transpose[1]).postln;
+        }, '/nextPreset');
+
         "MIDI Thru active: forwarding all input to channels 9 and 10".postln;
+        ("Preset " ++ ~presetIndex ++ ": ch9=" ++ ~transpose[0] ++ " ch10=" ++ ~transpose[1]).postln;
 
         MIDIdef.noteOn(\noteOnThru, { |vel, note, chan, src|
-            ~chans.do { |ch| ~midiOut.noteOn(ch, note, vel) };
+            ~chans.do { |ch, i|
+                ~midiOut.noteOn(ch, (note + ~transpose[i]).clip(0, 127), vel);
+            };
         });
 
         MIDIdef.noteOff(\noteOffThru, { |vel, note, chan, src|
-            ~chans.do { |ch| ~midiOut.noteOff(ch, note, vel) };
+            ~chans.do { |ch, i|
+                ~midiOut.noteOff(ch, (note + ~transpose[i]).clip(0, 127), vel);
+            };
         });
 
         MIDIdef.cc(\ccThru, { |val, num, chan, src|
@@ -43,7 +68,9 @@ s.waitForBoot({
         });
 
         MIDIdef.polytouch(\polytouchThru, { |val, note, chan, src|
-            ~chans.do { |ch| ~midiOut.polytouch(ch, note, val) };
+            ~chans.do { |ch, i|
+                ~midiOut.polytouch(ch, (note + ~transpose[i]).clip(0, 127), val);
+            };
         });
 
         MIDIdef.program(\programThru, { |val, chan, src|

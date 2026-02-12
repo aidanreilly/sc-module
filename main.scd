@@ -208,21 +208,13 @@ s.waitForBoot({
         // ==============================
         // REALTIME THRU + TEMPO DERIVE
         // ==============================
-        // DEBUG: logs every sysrt message received.
-        // Clock (index 0) only logs every 24th tick to avoid spam.
-        ~debugClockCount = 0;
-
         MIDIIn.addFuncTo(\sysrt, { |src, index|
 
             case
-            { index == 0 } {
+            { index == 8 } {
+                // Clock tick (0xF8)
                 var now = SystemClock.seconds;
                 ~midiOut.midiClock;
-                ~debugClockCount = ~debugClockCount + 1;
-
-                if((~debugClockCount % 24) == 0) {
-                    ("DEBUG sysrt clock tick #" ++ ~debugClockCount.asString).postln;
-                };
 
                 if(~lastClockTime.notNil) {
                     var interval = now - ~lastClockTime;
@@ -233,31 +225,37 @@ s.waitForBoot({
                         ~quarterDur = ~clockIntervals.mean * 24;
                         ~bpm = (60 / ~quarterDur).round(0.1);
                         ~tempoReady = true;
-                        (">>> Tempo: " ++ ~bpm).postln;
                     };
                 };
 
                 ~lastClockTime = now;
             }
-            { index == 1 } {
-                "DEBUG sysrt: START (index 1)".postln;
+            { index == 10 } {
+                // Start (0xFA)
                 ~midiOut.start;
                 ~transportRunning = true;
+                ~bassIdx = 0;
+                ~altoIdx = 0;
+                ~bassStep = 0;
+                ~altoStep = 0;
+                ">>> Transport START".postln;
             }
-            { index == 2 } {
-                "DEBUG sysrt: CONTINUE (index 2)".postln;
+            { index == 11 } {
+                // Continue (0xFB)
                 ~midiOut.continue;
                 ~transportRunning = true;
+                ">>> Transport CONTINUE".postln;
             }
-            { index == 3 } {
-                "DEBUG sysrt: STOP (index 3)".postln;
+            { index == 12 } {
+                // Stop (0xFC)
                 ~midiOut.stop;
                 ~transportRunning = false;
                 ~allNotesOff.value;
-            }
-            { true } {
-                // Catch anything else — shows the raw index
-                ("DEBUG sysrt: UNKNOWN index=" ++ index.asString ++ " src=" ++ src.asString).postln;
+                ~bassIdx = 0;
+                ~altoIdx = 0;
+                ~bassStep = 0;
+                ~altoStep = 0;
+                ">>> Transport STOP".postln;
             };
         });
 

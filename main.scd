@@ -117,6 +117,26 @@ s.waitForBoot({
         ~presetIndex = 0;
         ~currentPreset = ~presets[0];
 
+        ~printPreset = {
+            ("Preset " ++ ~presetIndex.asString ++ ": " ++ ~presetNames[~presetIndex]).postln;
+            ("  Bass — rhythm: " ++ ~currentPreset[0].asString
+                ++ "  transpose: " ++ ~currentPreset[2].asString
+                ++ "  shuffle: " ++ ~currentPreset[4].asString
+                ++ "  miss: " ++ ~currentPreset[6].asString).postln;
+            ("  Alto — rhythm: " ++ ~currentPreset[1].asString
+                ++ "  transpose: " ++ ~currentPreset[3].asString
+                ++ "  shuffle: " ++ ~currentPreset[5].asString
+                ++ "  miss: " ++ ~currentPreset[7].asString).postln;
+        };
+
+        ~printPreset.();
+
+        OSCdef(\nextPreset, { |msg|
+            ~presetIndex = (~presetIndex + 1) % ~presets.size;
+            ~currentPreset = ~presets[~presetIndex];
+            ~printPreset.();
+        }, '/nextPreset');
+
         // ==============================
         // HELPERS
         // ==============================
@@ -246,13 +266,11 @@ s.waitForBoot({
                 ~altoIdx = 0;
                 ~bassStep = 0;
                 ~altoStep = 0;
-                ">>> Transport START".postln;
             }
             { index == 11 } {
                 // Continue (0xFB)
                 ~midiOut.continue;
                 ~transportRunning = true;
-                ">>> Transport CONTINUE".postln;
             }
             { index == 12 } {
                 // Stop (0xFC)
@@ -263,7 +281,6 @@ s.waitForBoot({
                 ~altoIdx = 0;
                 ~bassStep = 0;
                 ~altoStep = 0;
-                ">>> Transport STOP".postln;
             };
         });
 

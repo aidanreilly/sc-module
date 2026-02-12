@@ -15,12 +15,20 @@ s.waitForBoot({
         // ==============================
         // MIDI INPUT
         // ==============================
-        // connectAll ensures sysrt (clock/transport) is captured —
-        // single-port connect can miss system realtime on Linux/ALSA.
-        MIDIIn.connectAll;
-        "MIDI inputs connected:".postln;
+        "MIDI sources:".postln;
         MIDIClient.sources.do { |src, i|
             ("  " ++ i.asString ++ ": " ++ src.device ++ " - " ++ src.name).postln;
+        };
+
+        ~pisoundSrcIdx = MIDIClient.sources.indexOf(
+            MIDIClient.sources.detect { |ep| ep.device == "pisound" }
+        );
+
+        if(~pisoundSrcIdx.notNil) {
+            MIDIIn.connect(~pisoundSrcIdx);
+            ("MIDI input connected: pisound (index " ++ ~pisoundSrcIdx.asString ++ ")").postln;
+        }{
+            "ERROR: pisound source not found".postln;
         };
 
         // ==============================

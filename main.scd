@@ -1,35 +1,52 @@
 (
 s.waitForBoot({
+
     MIDIClient.init;
 
     AppClock.sched(3, {
-        // === CLEANUP (safe re-evaluation) ===
+
+        // ==============================
+        // CLEANUP
+        // ==============================
         if(~bassRoutine.notNil, { ~bassRoutine.stop });
         if(~altoRoutine.notNil, { ~altoRoutine.stop });
         if(~allNotesOff.notNil, { ~allNotesOff.value });
 
-        // === MIDI SETUP ===
-        ~pisoundSrc = MIDIClient.sources.detect { |ep| ep.device == "pisound" };
-        if(~pisoundSrc.notNil, {
-            try { MIDIIn.connect(0, ~pisoundSrc.uid) };
-            ("MIDI input: " ++ ~pisoundSrc.device ++ " [" ++ ~pisoundSrc.name ++ "]").postln;
-        }, {
-            "ERROR: pisound not found in MIDI sources".postln;
-        });
+        // ==============================
+        // MIDI INPUT (FIXED)
+        // ==============================
+        MIDIClient.sources.do { |src, i|
+            (i ++ " : " ++ src.device ++ " - " ++ src.name).postln;
+        };
 
-        ~pisound = MIDIClient.destinations.detect { |ep| ep.device == "pisound" };
-        if(~pisound.notNil, {
-            ~midiOut = MIDIOut(0, ~pisound.uid);
-            ("MIDI output: " ++ ~pisound.device ++ " [" ++ ~pisound.name ++ "]").postln;
-        }, {
-            "ERROR: pisound not found in MIDI destinations".postln;
-            MIDIClient.destinations.do { |ep, i|
-                ("  " ++ i ++ ": " ++ ep.device ++ " - " ++ ep.name).postln;
-            };
-        });
+        ~pisoundIndex = MIDIClient.sources.indexOf(
+            MIDIClient.sources.detect { |ep| ep.device == "pisound" }
+        );
+
+        if(~pisoundIndex.notNil) {
+            MIDIIn.connect(~pisoundIndex);
+            ("Connected MIDI input index: " ++ ~pisoundIndex).postln;
+        }{
+            "ERROR: pisound source not found".postln;
+        };
+
+        // ==============================
+        // MIDI OUTPUT
+        // ==============================
+        ~pisoundDest = MIDIClient.destinations.detect { |ep| ep.device == "pisound" };
+
+        if(~pisoundDest.notNil) {
+            ~midiOut = MIDIOut.newByName(~pisoundDest.device, ~pisoundDest.name);
+            ("MIDI output: " ++ ~pisoundDest.device ++ " [" ++ ~pisoundDest.name ++ "]").postln;
+        }{
+            "ERROR: pisound destination not found".postln;
+        };
+
         ~midiOut.latency = 0;
 
-        // === FIFO NOTE BANK (5 slots) ===
+        // ==============================
+        // FIFO NOTE BANK
+        // ==============================
         ~fifoNotes = Array.fill(5, { nil });
         ~fifoVels  = Array.fill(5, { nil });
         ~fifoCount = 0;
@@ -40,276 +57,223 @@ s.waitForBoot({
             ~fifoCount = min(~fifoCount + 1, 5);
         };
 
-        // === VOICE STATE ===
-        ~bassChan = 8;  // MIDI ch 9
-        ~altoChan = 9;  // MIDI ch 10
-        ~bassIdx  = 0;
-        ~altoIdx  = 0;
+        // ==============================
+        // VOICE STATE
+        // ==============================
+        ~bassChan = 8;
+        ~altoChan = 9;
+
+        ~bassIdx = 0;
+        ~altoIdx = 0;
         ~bassStep = 0;
         ~altoStep = 0;
+
         ~bassCurrentNote = nil;
         ~altoCurrentNote = nil;
 
-        // === TRANSPORT (Keystep is master) ===
+        // ==============================
+        // TRANSPORT
+        // ==============================
         ~transportRunning = false;
-        ~tempoReady       = false;
+        ~tempoReady = false;
 
-        // === TEMPO (derived from Keystep clock) ===
         ~quarterDur = 0.5;
         ~bpm = 120;
+
         ~lastClockTime = nil;
         ~clockTicks = 0;
         ~clockIntervals = Array.fill(24, { 60 / (120 * 24) });
 
-        // === PRESETS ===
-        //   [0] bassRhythm  [1] altoRhythm  [2] bassTranspose  [3] altoTranspose
-        //   [4] bassShuffle  [5] altoShuffle  [6] bassMiss  [7] altoMiss
-
+        // ==============================
+        // PRESETS
+        // ==============================
         ~presetNames = [
-            "Unison Pulse",      // 0
-            "Octave Split",      // 1
-            "Fifth Shimmer",     // 2
-            "Walking Bass",      // 3
-            "Cathedral",         // 4
-            "Tight Thirds",      // 5
-            "Syncopated",        // 6
-            "Double Time",       // 7
-            "Polyrhythm",        // 8
-            "Contrary Cascade"   // 9
+            "Unison Pulse",
+            "Octave Split",
+            "Fifth Shimmer",
+            "Walking Bass",
+            "Cathedral",
+            "Tight Thirds",
+            "Syncopated",
+            "Double Time",
+            "Polyrhythm",
+            "Contrary Cascade"
         ];
 
         ~presets = [
-            [  1.0,   1.0,    0,     0,     0.0,   0.0,   0.0,   0.0  ],  // 0: Unison Pulse
-            [  2.0,   0.5,  -12,     0,     0.0,   0.0,   0.0,   0.0  ],  // 1: Octave Split
-            [  1.0,   0.25,   0,     7,     0.0,   0.25,  0.0,   0.0  ],  // 2: Fifth Shimmer
-            [  0.5,   2.0,  -12,     7,     0.2,   0.0,   0.05,  0.0  ],  // 3: Walking Bass
-            [  4.0,   1.0,  -12,    12,     0.0,   0.0,   0.0,   0.0  ],  // 4: Cathedral
-            [  0.5,   0.5,    0,     4,     0.15,  0.15,  0.0,   0.05 ],  // 5: Tight Thirds
-            [  1.5,   1.0,   -7,     5,     0.25,  0.0,   0.05,  0.0  ],  // 6: Syncopated
-            [  0.25,  0.5,    0,     0,     0.0,   0.2,   0.0,   0.05 ],  // 7: Double Time
-            [  1.5,   0.5,   -5,    12,     0.3,   0.0,   0.05,  0.05 ],  // 8: Polyrhythm
-            [  0.333, 2.0,   12,   -12,     0.2,   0.2,   0.05,  0.0  ]   // 9: Contrary Cascade
+            [1.0,1.0,0,0,0,0,0,0],
+            [2.0,0.5,-12,0,0,0,0,0],
+            [1.0,0.25,0,7,0,0.25,0,0],
+            [0.5,2.0,-12,7,0.2,0,0.05,0],
+            [4.0,1.0,-12,12,0,0,0,0],
+            [0.5,0.5,0,4,0.15,0.15,0,0.05],
+            [1.5,1.0,-7,5,0.25,0,0.05,0],
+            [0.25,0.5,0,0,0,0.2,0,0.05],
+            [1.5,0.5,-5,12,0.3,0,0.05,0.05],
+            [0.333,2.0,12,-12,0.2,0.2,0.05,0]
         ];
 
         ~presetIndex = 0;
         ~currentPreset = ~presets[0];
 
-        // === HELPERS ===
+        // ==============================
+        // HELPERS
+        // ==============================
         ~allNotesOff = {
-            if(~bassCurrentNote.notNil, {
+            if(~bassCurrentNote.notNil) {
                 ~midiOut.noteOff(~bassChan, ~bassCurrentNote, 0);
                 ~bassCurrentNote = nil;
-            });
-            if(~altoCurrentNote.notNil, {
+            };
+            if(~altoCurrentNote.notNil) {
                 ~midiOut.noteOff(~altoChan, ~altoCurrentNote, 0);
                 ~altoCurrentNote = nil;
-            });
+            };
         };
 
         ~shuffledDur = { |baseDur, shuffle, step|
-            if(shuffle > 0, {
-                if((step % 2) == 0, {
-                    baseDur * (1 + shuffle);
-                }, {
-                    baseDur * (1 - shuffle);
-                });
-            }, {
-                baseDur;
-            });
+            if(shuffle > 0) {
+                if((step % 2) == 0) {
+                    baseDur * (1 + shuffle)
+                }{
+                    baseDur * (1 - shuffle)
+                }
+            }{
+                baseDur
+            }
         };
 
-        // === BASS VOICE ROUTINE ===
+        // ==============================
+        // BASS ROUTINE
+        // ==============================
         ~bassRoutine = Routine({
             loop {
-                if(~transportRunning && ~tempoReady, {
-                    var baseDur, dur;
-                    baseDur = ~quarterDur * ~currentPreset[0];
-                    dur = ~shuffledDur.value(baseDur, ~currentPreset[4], ~bassStep);
+                if(~transportRunning && ~tempoReady) {
 
-                    if(~fifoCount > 0, {
-                        if(1.0.rand >= ~currentPreset[6], {
-                            var note, vel, out;
-                            note = ~fifoNotes[~bassIdx % ~fifoCount];
-                            vel  = ~fifoVels[~bassIdx % ~fifoCount];
-                            out  = (note + ~currentPreset[2]).clip(0, 127);
+                    var baseDur = ~quarterDur * ~currentPreset[0];
+                    var dur = ~shuffledDur.(baseDur, ~currentPreset[4], ~bassStep);
 
-                            if(~bassCurrentNote.notNil, {
+                    if(~fifoCount > 0) {
+                        if(1.0.rand >= ~currentPreset[6]) {
+                            var note = ~fifoNotes[~bassIdx % ~fifoCount];
+                            var vel  = ~fifoVels[~bassIdx % ~fifoCount];
+                            var out  = (note + ~currentPreset[2]).clip(0,127);
+
+                            if(~bassCurrentNote.notNil) {
                                 ~midiOut.noteOff(~bassChan, ~bassCurrentNote, 0);
-                            });
+                            };
+
                             ~midiOut.noteOn(~bassChan, out, vel);
                             ~bassCurrentNote = out;
-                        }, {
-                            if(~bassCurrentNote.notNil, {
-                                ~midiOut.noteOff(~bassChan, ~bassCurrentNote, 0);
-                                ~bassCurrentNote = nil;
-                            });
-                        });
+                        };
+
                         ~bassIdx = (~bassIdx + 1) % 5;
-                    });
+                    };
 
                     ~bassStep = ~bassStep + 1;
                     dur.wait;
-                }, {
+                }{
                     0.05.wait;
-                });
-            }
+                };
+            };
         }).play(SystemClock);
 
-        // === ALTO VOICE ROUTINE ===
+        // ==============================
+        // ALTO ROUTINE
+        // ==============================
         ~altoRoutine = Routine({
             loop {
-                if(~transportRunning && ~tempoReady, {
-                    var baseDur, dur;
-                    baseDur = ~quarterDur * ~currentPreset[1];
-                    dur = ~shuffledDur.value(baseDur, ~currentPreset[5], ~altoStep);
+                if(~transportRunning && ~tempoReady) {
 
-                    if(~fifoCount > 0, {
-                        if(1.0.rand >= ~currentPreset[7], {
-                            var note, vel, out;
-                            note = ~fifoNotes[~altoIdx % ~fifoCount];
-                            vel  = ~fifoVels[~altoIdx % ~fifoCount];
-                            out  = (note + ~currentPreset[3]).clip(0, 127);
+                    var baseDur = ~quarterDur * ~currentPreset[1];
+                    var dur = ~shuffledDur.(baseDur, ~currentPreset[5], ~altoStep);
 
-                            if(~altoCurrentNote.notNil, {
+                    if(~fifoCount > 0) {
+                        if(1.0.rand >= ~currentPreset[7]) {
+                            var note = ~fifoNotes[~altoIdx % ~fifoCount];
+                            var vel  = ~fifoVels[~altoIdx % ~fifoCount];
+                            var out  = (note + ~currentPreset[3]).clip(0,127);
+
+                            if(~altoCurrentNote.notNil) {
                                 ~midiOut.noteOff(~altoChan, ~altoCurrentNote, 0);
-                            });
+                            };
+
                             ~midiOut.noteOn(~altoChan, out, vel);
                             ~altoCurrentNote = out;
-                        }, {
-                            if(~altoCurrentNote.notNil, {
-                                ~midiOut.noteOff(~altoChan, ~altoCurrentNote, 0);
-                                ~altoCurrentNote = nil;
-                            });
-                        });
+                        };
+
                         ~altoIdx = (~altoIdx + 1) % 5;
-                    });
+                    };
 
                     ~altoStep = ~altoStep + 1;
                     dur.wait;
-                }, {
+                }{
                     0.05.wait;
-                });
-            }
+                };
+            };
         }).play(SystemClock);
 
-        // === SYSRT THRU (clock + transport) ===
-        // Single catch-all handler — no index filtering so nothing is missed.
-        // Forwards clock, start, stop, continue to output.
-        // Derives tempo from clock tick intervals.
+        // ==============================
+        // REALTIME THRU + TEMPO DERIVE
+        // ==============================
         MIDIIn.addFuncTo(\sysrt, { |src, index|
+
             case
-                { index == 0 } {
-                    // Clock tick — forward and track tempo
-                    var now = SystemClock.seconds;
-                    ~midiOut.midiClock;
-                    if(~lastClockTime.notNil, {
-                        var interval = now - ~lastClockTime;
-                        ~clockIntervals[~clockTicks % 24] = interval;
-                        ~clockTicks = ~clockTicks + 1;
-                        if((~clockTicks % 24) == 0, {
-                            ~quarterDur = ~clockIntervals.mean * 24;
-                            ~bpm = (60 / ~quarterDur).round(0.1);
-                            if(~tempoReady.not, {
-                                ~tempoReady = true;
-                                (">>> Tempo: " ++ ~bpm ++ " BPM").postln;
-                            });
-                        });
-                    });
-                    ~lastClockTime = now;
-                }
-                { index == 1 } {
-                    // Start
-                    ~midiOut.start;
-                    ~transportRunning = true;
-                    ~bassIdx = 0;
-                    ~altoIdx = 0;
-                    ~bassStep = 0;
-                    ~altoStep = 0;
-                    ">>> Transport START".postln;
-                }
-                { index == 2 } {
-                    // Continue
-                    ~midiOut.continue;
-                    ~transportRunning = true;
-                    ">>> Transport CONTINUE".postln;
-                }
-                { index == 3 } {
-                    // Stop
-                    ~midiOut.stop;
-                    ~transportRunning = false;
-                    ~allNotesOff.value;
-                    ~bassIdx = 0;
-                    ~altoIdx = 0;
-                    ~bassStep = 0;
-                    ~altoStep = 0;
-                    ">>> Transport STOP".postln;
-                }
-                { true } {
-                    // Log any other sysrt messages for debugging
-                    ("sysrt index: " ++ index).postln;
-                }
-            ;
+            { index == 0 } {
+                var now = SystemClock.seconds;
+                ~midiOut.midiClock;
+
+                if(~lastClockTime.notNil) {
+                    var interval = now - ~lastClockTime;
+                    ~clockIntervals[~clockTicks % 24] = interval;
+                    ~clockTicks = ~clockTicks + 1;
+
+                    if((~clockTicks % 24) == 0) {
+                        ~quarterDur = ~clockIntervals.mean * 24;
+                        ~bpm = (60 / ~quarterDur).round(0.1);
+                        ~tempoReady = true;
+                        (">>> Tempo: " ++ ~bpm).postln;
+                    };
+                };
+
+                ~lastClockTime = now;
+            }
+            { index == 1 } {
+                ~midiOut.start;
+                ~transportRunning = true;
+            }
+            { index == 2 } {
+                ~midiOut.continue;
+                ~transportRunning = true;
+            }
+            { index == 3 } {
+                ~midiOut.stop;
+                ~transportRunning = false;
+                ~allNotesOff.value;
+            };
         });
 
-        // === INCOMING NOTES ===
-        // Always fill the FIFO.
-        // When transport is stopped, also pass through to ch9/ch10 with transposition.
-        // When transport is running, voices handle output from the FIFO.
-        MIDIdef.noteOn(\noteIn, { |vel, note, chan, src|
-            ~pushNote.value(note, vel);
-            if(~transportRunning.not, {
-                ~midiOut.noteOn(~bassChan, (note + ~currentPreset[2]).clip(0, 127), vel);
-                ~midiOut.noteOn(~altoChan, (note + ~currentPreset[3]).clip(0, 127), vel);
-            });
+        // ==============================
+        // NOTE INPUT
+        // ==============================
+        MIDIdef.noteOn(\noteIn, { |vel, note|
+            ~pushNote.(note, vel);
+
+            if(~transportRunning.not) {
+                ~midiOut.noteOn(~bassChan, (note + ~currentPreset[2]).clip(0,127), vel);
+                ~midiOut.noteOn(~altoChan, (note + ~currentPreset[3]).clip(0,127), vel);
+            };
         });
 
-        MIDIdef.noteOff(\noteOffIn, { |vel, note, chan, src|
-            if(~transportRunning.not, {
-                ~midiOut.noteOff(~bassChan, (note + ~currentPreset[2]).clip(0, 127), vel);
-                ~midiOut.noteOff(~altoChan, (note + ~currentPreset[3]).clip(0, 127), vel);
-            });
+        MIDIdef.noteOff(\noteOffIn, { |vel, note|
+            if(~transportRunning.not) {
+                ~midiOut.noteOff(~bassChan, (note + ~currentPreset[2]).clip(0,127), vel);
+                ~midiOut.noteOff(~altoChan, (note + ~currentPreset[3]).clip(0,127), vel);
+            };
         });
-
-        // === CC / PITCH BEND FORWARDING ===
-        MIDIdef.cc(\ccFwd, { |val, num, chan, src|
-            [~bassChan, ~altoChan].do { |ch| ~midiOut.control(ch, num, val) };
-        });
-
-        MIDIdef.bend(\bendFwd, { |val, chan, src|
-            [~bassChan, ~altoChan].do { |ch| ~midiOut.bend(ch, val) };
-        });
-
-        // === PRESET SWITCHING ===
-        OSCdef(\nextPreset, { |msg|
-            ~allNotesOff.value;
-            ~presetIndex = (~presetIndex + 1) % ~presets.size;
-            ~currentPreset = ~presets[~presetIndex];
-            ~bassIdx = 0;
-            ~altoIdx = 0;
-            ~bassStep = 0;
-            ~altoStep = 0;
-            (">>> Preset " ++ ~presetIndex ++ ": " ++ ~presetNames[~presetIndex]).postln;
-        }, '/nextPreset');
-
-        // === CMDPERIOD CLEANUP ===
-        CmdPeriod.doOnce({
-            ~allNotesOff.value;
-            ~midiOut.stop;
-            "Sequencer stopped".postln;
-        });
-
-        // === STATUS ===
-        "".postln;
-        "=== FIFO Sequencer ===".postln;
-        "Keystep master | Bass: ch9 | Alto: ch10".postln;
-        ("Preset 0: " ++ ~presetNames[0]).postln;
-        "Stopped: notes pass through + fill FIFO".postln;
-        "Playing: voices sequence from FIFO".postln;
-        "Clock/transport forwarded to output".postln;
-        "OSC /nextPreset to cycle presets".postln;
-        "".postln;
 
         nil;
+
     });
+
 });
 )

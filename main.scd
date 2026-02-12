@@ -192,55 +192,64 @@ s.waitForBoot({
             }
         }).play(SystemClock);
 
-        // === MIDI CLOCK THRU + TEMPO TRACKING ===
-        // Forward every clock tick to output. Derive tempo from tick intervals.
-        MIDIdef.sysrt(\clockThru, {
-            var now = SystemClock.seconds;
-            ~midiOut.midiClock;
-            if(~lastClockTime.notNil, {
-                var interval = now - ~lastClockTime;
-                ~clockIntervals[~clockTicks % 24] = interval;
-                ~clockTicks = ~clockTicks + 1;
-                if((~clockTicks % 24) == 0, {
-                    ~quarterDur = ~clockIntervals.mean * 24;
-                    ~bpm = (60 / ~quarterDur).round(0.1);
-                    if(~tempoReady.not, {
-                        ~tempoReady = true;
-                        (">>> Tempo: " ++ ~bpm ++ " BPM").postln;
+        // === SYSRT THRU (clock + transport) ===
+        // Single catch-all handler — no index filtering so nothing is missed.
+        // Forwards clock, start, stop, continue to output.
+        // Derives tempo from clock tick intervals.
+        MIDIIn.addFuncTo(\sysrt, { |src, index|
+            case
+                { index == 0 } {
+                    // Clock tick — forward and track tempo
+                    var now = SystemClock.seconds;
+                    ~midiOut.midiClock;
+                    if(~lastClockTime.notNil, {
+                        var interval = now - ~lastClockTime;
+                        ~clockIntervals[~clockTicks % 24] = interval;
+                        ~clockTicks = ~clockTicks + 1;
+                        if((~clockTicks % 24) == 0, {
+                            ~quarterDur = ~clockIntervals.mean * 24;
+                            ~bpm = (60 / ~quarterDur).round(0.1);
+                            if(~tempoReady.not, {
+                                ~tempoReady = true;
+                                (">>> Tempo: " ++ ~bpm ++ " BPM").postln;
+                            });
+                        });
                     });
-                });
-            });
-            ~lastClockTime = now;
-        }, 0); // 0 = clock
-
-        // === TRANSPORT THRU ===
-        // Forward start/stop/continue from Keystep to output.
-        MIDIdef.sysrt(\startThru, {
-            ~midiOut.start;
-            ~transportRunning = true;
-            ~bassIdx = 0;
-            ~altoIdx = 0;
-            ~bassStep = 0;
-            ~altoStep = 0;
-            ">>> Transport START".postln;
-        }, 1); // 1 = start
-
-        MIDIdef.sysrt(\continueThru, {
-            ~midiOut.continue;
-            ~transportRunning = true;
-            ">>> Transport CONTINUE".postln;
-        }, 2); // 2 = continue
-
-        MIDIdef.sysrt(\stopThru, {
-            ~midiOut.stop;
-            ~transportRunning = false;
-            ~allNotesOff.value;
-            ~bassIdx = 0;
-            ~altoIdx = 0;
-            ~bassStep = 0;
-            ~altoStep = 0;
-            ">>> Transport STOP".postln;
-        }, 3); // 3 = stop
+                    ~lastClockTime = now;
+                }
+                { index == 1 } {
+                    // Start
+                    ~midiOut.start;
+                    ~transportRunning = true;
+                    ~bassIdx = 0;
+                    ~altoIdx = 0;
+                    ~bassStep = 0;
+                    ~altoStep = 0;
+                    ">>> Transport START".postln;
+                }
+                { index == 2 } {
+                    // Continue
+                    ~midiOut.continue;
+                    ~transportRunning = true;
+                    ">>> Transport CONTINUE".postln;
+                }
+                { index == 3 } {
+                    // Stop
+                    ~midiOut.stop;
+                    ~transportRunning = false;
+                    ~allNotesOff.value;
+                    ~bassIdx = 0;
+                    ~altoIdx = 0;
+                    ~bassStep = 0;
+                    ~altoStep = 0;
+                    ">>> Transport STOP".postln;
+                }
+                { true } {
+                    // Log any other sysrt messages for debugging
+                    ("sysrt index: " ++ index).postln;
+                }
+            ;
+        });
 
         // === INCOMING NOTES ===
         // Always fill the FIFO.

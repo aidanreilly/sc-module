@@ -16,7 +16,7 @@ s.waitForBoot({
         // MIDI INPUT (FIXED)
         // ==============================
         MIDIClient.sources.do { |src, i|
-            (i ++ " : " ++ src.device ++ " - " ++ src.name).postln;
+            (i.asString ++ " : " ++ src.device ++ " - " ++ src.name).postln;
         };
 
         ~pisoundIndex = MIDIClient.sources.indexOf(

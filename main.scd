@@ -13,21 +13,14 @@ s.waitForBoot({
         if(~allNotesOff.notNil, { ~allNotesOff.value });
 
         // ==============================
-        // MIDI INPUT (FIXED)
+        // MIDI INPUT
         // ==============================
+        // connectAll ensures sysrt (clock/transport) is captured —
+        // single-port connect can miss system realtime on Linux/ALSA.
+        MIDIIn.connectAll;
+        "MIDI inputs connected:".postln;
         MIDIClient.sources.do { |src, i|
-            (i.asString ++ " : " ++ src.device ++ " - " ++ src.name).postln;
-        };
-
-        ~pisoundIndex = MIDIClient.sources.indexOf(
-            MIDIClient.sources.detect { |ep| ep.device == "pisound" }
-        );
-
-        if(~pisoundIndex.notNil) {
-            MIDIIn.connect(~pisoundIndex);
-            ("Connected MIDI input index: " ++ ~pisoundIndex).postln;
-        }{
-            "ERROR: pisound source not found".postln;
+            ("  " ++ i.asString ++ ": " ++ src.device ++ " - " ++ src.name).postln;
         };
 
         // ==============================
@@ -215,12 +208,21 @@ s.waitForBoot({
         // ==============================
         // REALTIME THRU + TEMPO DERIVE
         // ==============================
+        // DEBUG: logs every sysrt message received.
+        // Clock (index 0) only logs every 24th tick to avoid spam.
+        ~debugClockCount = 0;
+
         MIDIIn.addFuncTo(\sysrt, { |src, index|
 
             case
             { index == 0 } {
                 var now = SystemClock.seconds;
                 ~midiOut.midiClock;
+                ~debugClockCount = ~debugClockCount + 1;
+
+                if((~debugClockCount % 24) == 0) {
+                    ("DEBUG sysrt clock tick #" ++ ~debugClockCount.asString).postln;
+                };
 
                 if(~lastClockTime.notNil) {
                     var interval = now - ~lastClockTime;
@@ -238,17 +240,24 @@ s.waitForBoot({
                 ~lastClockTime = now;
             }
             { index == 1 } {
+                "DEBUG sysrt: START (index 1)".postln;
                 ~midiOut.start;
                 ~transportRunning = true;
             }
             { index == 2 } {
+                "DEBUG sysrt: CONTINUE (index 2)".postln;
                 ~midiOut.continue;
                 ~transportRunning = true;
             }
             { index == 3 } {
+                "DEBUG sysrt: STOP (index 3)".postln;
                 ~midiOut.stop;
                 ~transportRunning = false;
                 ~allNotesOff.value;
+            }
+            { true } {
+                // Catch anything else — shows the raw index
+                ("DEBUG sysrt: UNKNOWN index=" ++ index.asString ++ " src=" ++ src.asString).postln;
             };
         });
 

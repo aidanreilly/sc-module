@@ -1,12 +1,12 @@
 # sc-module
 
-A Patchbox OS module that runs a headless SuperCollider FIFO sequencer on a Pisound. Incoming MIDI notes are captured into a 16-slot note bank, and two autonomous voices (bass and alto) cycle through the bank at rhythmic divisions or multiples of the tempo.
+A Patchbox OS module that runs a headless SuperCollider FIFO sequencer on a Pisound. A Keystep (or any MIDI controller sending clock and transport) acts as the master. Incoming notes fill a 5-slot note bank, and two voices (bass and alto) sequence through it when transport is running.
 
 ## Prerequisites
 
 - Patchbox OS with a working JACK configuration
 - SuperCollider (`sclang` / `scsynth`) installed
-- A connected MIDI input device
+- A MIDI controller that sends clock and transport (e.g. Arturia Keystep)
 
 ## Install
 
@@ -24,14 +24,13 @@ Once activated, the module starts automatically on boot.
 
 ## How it works
 
-1. **FIFO note bank** — Every incoming MIDI note-on is pushed to the front of a 16-slot FIFO. When the bank is full the oldest note is discarded.
-2. **Two voices** — A bass voice on MIDI channel 9 and an alto voice on MIDI channel 10 independently step through the bank from the top, each at their own rhythm.
-3. **Tempo sync** — Defaults to 120 BPM. Automatically syncs to incoming MIDI clock (24 PPQ) when present.
-4. **Presets** — 10 preset variations control each voice's rhythm, transposition, shuffle, and miss probability. Cycle through them by sending an OSC `/nextPreset` message.
+1. **Keystep is master** — Clock ticks (24 PPQ) and transport (start/stop/continue) are received from the Keystep and forwarded out the pisound MIDI output so downstream devices stay synced.
+2. **FIFO note bank** — Every incoming note-on is pushed to the front of a 5-slot FIFO. When full, the oldest note is discarded.
+3. **Stopped** — Notes pass through to MIDI channels 9 and 10 with the current preset's transposition, and simultaneously fill the FIFO. You hear what you play.
+4. **Playing** — The bass (ch 9) and alto (ch 10) voices take over, independently stepping through the FIFO at rhythmic divisions or multiples of the clock tempo. Direct note passthrough is disabled.
+5. **Presets** — 10 variations control each voice's rhythm, transposition, shuffle, and miss probability. Cycle with OSC `/nextPreset`.
 
 ## Presets
-
-Each preset defines 8 parameters per voice pair:
 
 | # | Name | Bass | Alto | Character |
 |---|------|------|------|-----------|
@@ -53,10 +52,17 @@ Each preset defines 8 parameters per voice pair:
 - **Shuffle** — Alternates long/short timing on consecutive steps (0.0 = straight, 0.33 = triplet swing).
 - **Miss** — Probability that a step is skipped (note-off / rest instead of note-on).
 
+## MIDI routing
+
+- **Clock in → clock out** — Every clock tick is forwarded to the pisound output.
+- **Transport in → transport out** — Start, stop, and continue messages are forwarded.
+- **Notes (stopped)** — Passed through to ch 9 and ch 10 with transposition, and stored in the FIFO.
+- **Notes (playing)** — Stored in the FIFO only; voices handle output.
+- **CC / pitch bend** — Forwarded to both voice channels.
+
 ## Customisation
 
 - Edit `main.scd` to change output channels. SuperCollider uses 0-indexed channel numbers (`~bassChan = 8` for MIDI channel 9, `~altoChan = 9` for channel 10).
 - Modify or add entries to `~presets` and `~presetNames` to create new variations.
 - The MIDI output is auto-detected by searching `MIDIClient.destinations` for a device named `pisound`. Run `MIDIClient.init; MIDIClient.destinations;` in sclang to list available outputs.
-- CC and pitch bend messages are forwarded to both voices.
-- Press `Cmd+.` in SuperCollider (or stop the process) to send all-notes-off and halt the sequencer.
+- Press `Cmd+.` in SuperCollider (or stop the process) to send all-notes-off, forward a MIDI stop, and halt the sequencer.

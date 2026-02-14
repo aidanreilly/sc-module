@@ -20,4 +20,13 @@ pactl unload-module module-jack-sink 2>/dev/null
 pactl unload-module module-jack-source 2>/dev/null
 
 MODULE_DIR="$(dirname "$(readlink -f "$0")")"
-sclang "$MODULE_DIR/main.scd"
+
+if [ "$(id -u)" = "0" ]; then
+    exec su patch -c "DISPLAY=$DISPLAY \
+        XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR \
+        JACK_NO_AUDIO_RESERVATION=$JACK_NO_AUDIO_RESERVATION \
+        QT_QPA_PLATFORM=$QT_QPA_PLATFORM \
+        sclang '$MODULE_DIR/main.scd'"
+else
+    sclang "$MODULE_DIR/main.scd"
+fi

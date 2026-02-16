@@ -89,20 +89,22 @@ s.waitForBoot({
         // PRESETS
         // ==============================
         ~presetNames = [
-            "Unison Pulse",
-            "Octave Split",
-            "Fifth Shimmer",
+            "Unison",
+            "Moog bass",
+            "Octaves",
+            "Fifths",
             "Walking Bass",
             "Cathedral",
-            "Tight Thirds",
+            "Thirds",
             "Syncopated",
-            "Double Time",
+            "Double",
             "Polyrhythm",
             "Contrary Cascade"
         ];
 
         ~presets = [
             [1.0,1.0,0,0,0,0,0,0],
+            [1.0,1.0,-12,7,0,0,0,0],
             [2.0,0.5,-12,0,0,0,0,0],
             [1.0,0.25,0,7,0,0.25,0,0],
             [0.5,2.0,-12,7,0.2,0,0.05,0],
